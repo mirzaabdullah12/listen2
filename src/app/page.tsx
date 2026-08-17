@@ -36,18 +36,24 @@ export default function Home() {
       .catch(() => setError('Failed to load transcription history.'));
   }, [setHistory, setError]);
 
-  // Called every 5s during recording — appends partial transcription live
+  // Called every 5s with ALL audio so far — replaces live text (not appends)
   const handleChunk = useCallback(async (blob: Blob) => {
-    if (isTranscribingChunkRef.current) return; // skip if previous chunk still processing
+    if (isTranscribingChunkRef.current) return;
     isTranscribingChunkRef.current = true;
     const lang = languageRef.current;
     const sid = sessionIdRef.current;
     try {
+      let result = '';
       for await (const text of streamTranscription(blob, lang, sid)) {
-        appendLiveText(text);
+        result += text;
+      }
+      if (result.trim()) {
+        // Replace live text with latest full transcription
+        useAppStore.getState().clearLiveText();
+        appendLiveText(result);
       }
     } catch {
-      // silently ignore live chunk errors — don't interrupt recording
+      // silently ignore live chunk errors
     } finally {
       isTranscribingChunkRef.current = false;
     }

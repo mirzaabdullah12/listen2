@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
 interface UseAudioRecorderOptions {
-  onChunk: (blob: Blob) => void;    // called every ~5s during recording
+  onChunk: (blob: Blob) => void;    // called every ~5s with ALL audio so far
   onComplete: (blob: Blob) => void; // called with full audio on stop
 }
 
@@ -15,7 +15,7 @@ interface UseAudioRecorderReturn {
   stop: () => void;
 }
 
-const CHUNK_INTERVAL_MS = 5000;
+const LIVE_INTERVAL_MS = 5000; // transcribe every 5 seconds
 
 export function useAudioRecorder({ onChunk, onComplete }: UseAudioRecorderOptions): UseAudioRecorderReturn {
   const [isRecording, setIsRecording] = useState(false);
@@ -27,10 +27,8 @@ export function useAudioRecorder({ onChunk, onComplete }: UseAudioRecorderOption
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const chunkTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const allChunksRef = useRef<Blob[]>([]);
-  const windowChunksRef = useRef<Blob[]>([]);
   const mimeTypeRef = useRef<string>('audio/webm');
 
-  // Use refs for callbacks to avoid stale closures
   const onChunkRef = useRef(onChunk);
   const onCompleteRef = useRef(onComplete);
   useEffect(() => { onChunkRef.current = onChunk; }, [onChunk]);
@@ -40,23 +38,20 @@ export function useAudioRecorder({ onChunk, onComplete }: UseAudioRecorderOption
     setError(null);
     setElapsedSeconds(0);
     allChunksRef.current = [];
-    windowChunksRef.current = [];
 
     let stream: MediaStream;
     try {
-      // Keep constraints simple — sampleRate is not universally supported
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true,
+          autoGainControl: true, // auto-boosts your voice volume
         },
       });
-    } catch (err) {
-      // Fallback: try without any constraints
+    } catch {
       try {
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch {
+      } catch (err) {
         const msg =
           err instanceof Error && err.name === 'NotAllowedError'
             ? 'Microphone access was denied. Please allow microphone permission in your browser settings.'
@@ -68,7 +63,6 @@ export function useAudioRecorder({ onChunk, onComplete }: UseAudioRecorderOption
 
     streamRef.current = stream;
 
-    // Pick best supported mime type
     const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4']
       .find((t) => MediaRecorder.isTypeSupported(t));
     mimeTypeRef.current = mimeType ?? 'audio/webm';
@@ -85,12 +79,11 @@ export function useAudioRecorder({ onChunk, onComplete }: UseAudioRecorderOption
     recorder.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) {
         allChunksRef.current.push(e.data);
-        windowChunksRef.current.push(e.data);
       }
     };
 
     recorder.onerror = () => {
-      setError('Recording error occurred. Please try again.');
+      setError('Recording error. Please try again.');
       setIsRecording(false);
     };
 
@@ -103,22 +96,21 @@ export function useAudioRecorder({ onChunk, onComplete }: UseAudioRecorderOption
 
       const fullBlob = new Blob(allChunksRef.current, { type: mimeTypeRef.current });
       allChunksRef.current = [];
-      windowChunksRef.current = [];
       if (fullBlob.size > 0) onCompleteRef.current(fullBlob);
     };
 
-    recorder.start(1000);
+    recorder.start(500); // collect data every 500ms for smoother accumulation
     setIsRecording(true);
 
     timerRef.current = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
 
+    // Send ALL accumulated audio every 5s for live transcription
     chunkTimerRef.current = setInterval(() => {
-      const chunks = windowChunksRef.current.splice(0);
-      if (chunks.length === 0) return;
-      const blob = new Blob(chunks, { type: mimeTypeRef.current });
+      if (allChunksRef.current.length === 0) return;
+      const blob = new Blob(allChunksRef.current, { type: mimeTypeRef.current });
       if (blob.size > 0) onChunkRef.current(blob);
-    }, CHUNK_INTERVAL_MS);
-  }, []); // no deps — uses refs for callbacks
+    }, LIVE_INTERVAL_MS);
+  }, []);
 
   const stop = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {

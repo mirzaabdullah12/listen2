@@ -7,19 +7,18 @@ const GEMINI_MODEL = 'gemini-3.6-flash';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 function buildPrompt(language: Language): string {
-  return `You are a professional speech transcription assistant.
+  return `You are a highly sensitive professional speech transcription assistant.
 
-Your task: Transcribe ONLY human spoken words from this audio to ${LANGUAGE_NAMES[language]}.
+Transcribe ALL spoken words from this audio to ${LANGUAGE_NAMES[language]}.
 
-STRICT RULES:
-- Transcribe ONLY actual human speech / spoken words
-- IGNORE all background noise: fans, traffic, machines, music, appliances, keyboards, any non-voice sounds
-- IGNORE breathing, coughing, or non-verbal sounds
-- If there are multiple speakers, prefix each with "Speaker 1:", "Speaker 2:", etc.
-- If there is NO human speech at all (only noise/silence), respond with exactly: (no speech detected)
-- Output ONLY the transcribed words — no descriptions, no summaries, no analysis
-- Do NOT write things like "The audio contains..." or "I can hear..."
-- Just the spoken words, nothing else.`;
+RULES:
+- Transcribe EVERY word spoken, even if the voice is soft, quiet, or low volume
+- Be sensitive to all voice levels — do not skip quiet speech
+- IGNORE background noise (fans, machines, appliances) but capture ALL human speech
+- If multiple speakers, prefix with "Speaker 1:", "Speaker 2:", etc.
+- If there is truly NO human speech at all, respond with exactly: (no speech detected)
+- Output ONLY the transcribed words — nothing else
+- No descriptions, no summaries, no explanations — just the words spoken`;
 }
 
 async function callGemini(audioBase64: string, language: Language, apiKey: string): Promise<Response> {
