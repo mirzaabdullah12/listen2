@@ -15,7 +15,7 @@ interface UseAudioRecorderReturn {
   stop: () => void;
 }
 
-const LIVE_INTERVAL_MS = 5000; // transcribe every 5 seconds
+const LIVE_INTERVAL_MS = 15000; // transcribe every 15 seconds (stays well under free tier limits)
 
 export function useAudioRecorder({ onChunk, onComplete }: UseAudioRecorderOptions): UseAudioRecorderReturn {
   const [isRecording, setIsRecording] = useState(false);

@@ -3,7 +3,7 @@ import type { Language } from '@/types';
 import { LANGUAGE_LABELS } from '@/types';
 
 const LANGUAGE_NAMES: Record<Language, string> = LANGUAGE_LABELS;
-const GEMINI_MODEL = 'gemini-3.6-flash';
+const GEMINI_MODEL = 'gemini-1.5-flash';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
 function buildPrompt(language: Language): string {
