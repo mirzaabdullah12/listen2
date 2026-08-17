@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { TranscriptionRecord } from '@/types';
 import type { Language } from '@/types';
 import { LANGUAGE_LABELS, LANGUAGE_LABELS as LL } from '@/types';
@@ -12,6 +12,13 @@ export function TranscriptionDetail({ record }: { record: TranscriptionRecord | 
   const [translatingTo, setTranslatingTo] = useState<Language | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [translateError, setTranslateError] = useState<string | null>(null);
+
+  // Reset translation when switching records
+  useEffect(() => {
+    setTranslatedText(null);
+    setTranslatingTo(null);
+    setTranslateError(null);
+  }, [record?.id]);
 
   if (!record) {
     return (
@@ -25,8 +32,13 @@ export function TranscriptionDetail({ record }: { record: TranscriptionRecord | 
   const displayLang = translatingTo ?? record.language;
 
   async function handleTranslate(lang: Language) {
-    if (lang === record!.language && !translatedText) return;
-    if (lang === record!.language) { setTranslatedText(null); setTranslatingTo(null); return; }
+    if (!record) return;
+    // If tapping original language, revert to original
+    if (lang === record.language) {
+      setTranslatedText(null);
+      setTranslatingTo(null);
+      return;
+    }
 
     setIsTranslating(true);
     setTranslateError(null);
@@ -34,10 +46,11 @@ export function TranscriptionDetail({ record }: { record: TranscriptionRecord | 
       const res = await fetch('/api/translate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: record!.text, targetLanguage: lang }),
+        body: JSON.stringify({ text: record.text, targetLanguage: lang }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'Translation failed');
+      if (!data.translated) throw new Error('Empty translation returned');
       setTranslatedText(data.translated);
       setTranslatingTo(lang);
     } catch (err) {
