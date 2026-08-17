@@ -23,7 +23,7 @@ export default function Home() {
   const [selectedRecord, setSelectedRecord] = useState<TranscriptionRecord | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [interimText, setInterimText] = useState('');
-  const [activeTab, setActiveTab] = useState<'record' | 'history'>('record');
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const sessionIdRef = useRef<string>(uuidv4());
   const sessionStartRef = useRef<number>(0);
@@ -35,9 +35,7 @@ export default function Home() {
       .catch(() => setError('Failed to load history.'));
   }, [setHistory, setError]);
 
-  const handleInterim = useCallback((text: string) => {
-    setInterimText(text);
-  }, []);
+  const handleInterim = useCallback((text: string) => setInterimText(text), []);
 
   const handleFinal = useCallback((text: string) => {
     finalTextRef.current = text;
@@ -59,16 +57,15 @@ export default function Home() {
     finalTextRef.current = '';
     clearLiveText();
     setInterimText('');
+    setSelectedRecord(null);
     start();
   }, [clearLiveText, start]);
 
   const handleStop = useCallback(async () => {
     stop();
     setIsSaving(true);
-
     const duration = Math.round((Date.now() - sessionStartRef.current) / 1000);
     const finalText = finalTextRef.current || useAppStore.getState().liveText;
-
     if (finalText.trim()) {
       const record: TranscriptionRecord = {
         id: sessionIdRef.current,
@@ -82,6 +79,7 @@ export default function Home() {
         await saveRecord(record);
         const updated = await getAllRecords();
         setHistory(updated);
+        setSelectedRecord(record); // auto-select the new recording
       } catch {
         setError('Failed to save. Storage may be full.');
       }
@@ -107,7 +105,7 @@ export default function Home() {
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--background)' }}>
 
       {/* Header */}
-      <header className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: 'var(--border)' }}>
+      <header className="flex items-center justify-between px-5 py-4 border-b" style={{ borderColor: 'var(--border)' }}>
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--accent)' }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
@@ -115,46 +113,25 @@ export default function Home() {
               <path d="M19 10v2a7 7 0 0 1-14 0v-2" stroke="white" strokeWidth="2" fill="none" strokeLinecap="round"/>
             </svg>
           </div>
-          <span className="font-semibold text-base tracking-tight" style={{ color: 'var(--text)' }}>ListenAI</span>
+          <span className="font-semibold text-base" style={{ color: 'var(--text)' }}>ListenAI</span>
         </div>
         <LanguageSelector value={selectedLanguage} onChange={setLanguage} disabled={isRecording || isSaving} />
       </header>
 
-      {/* Tab bar */}
-      <div className="flex border-b" style={{ borderColor: 'var(--border)' }}>
-        {(['record', 'history'] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className="flex-1 py-3 text-sm font-medium capitalize transition-colors"
-            style={{
-              color: activeTab === tab ? 'var(--accent)' : 'var(--text-muted)',
-              borderBottom: activeTab === tab ? '2px solid var(--accent)' : '2px solid transparent',
-            }}
-          >
-            {tab}
-            {tab === 'history' && history.length > 0 && (
-              <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-xs" style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}>
-                {history.length}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* Content */}
       <main className="flex-1 overflow-y-auto">
-        {activeTab === 'record' && (
-          <div className="flex flex-col items-center gap-6 px-4 py-8 max-w-lg mx-auto w-full">
-            <ErrorBanner message={error} onDismiss={() => setError(null)} />
+        <div className="flex flex-col gap-5 px-4 py-6 max-w-lg mx-auto w-full">
 
-            {!isSupported && (
-              <div className="w-full rounded-2xl px-4 py-3 text-sm text-center"
-                style={{ background: 'rgba(255,193,7,0.1)', border: '1px solid rgba(255,193,7,0.3)', color: '#ffc107' }}>
-                Use Chrome or Edge for speech recognition
-              </div>
-            )}
+          <ErrorBanner message={error} onDismiss={() => setError(null)} />
 
+          {!isSupported && (
+            <div className="rounded-2xl px-4 py-3 text-sm text-center"
+              style={{ background: 'rgba(255,193,7,0.1)', border: '1px solid rgba(255,193,7,0.3)', color: '#ffc107' }}>
+              Use Chrome or Edge for speech recognition
+            </div>
+          )}
+
+          {/* Recorder */}
+          <div className="rounded-2xl p-5" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
             <RecordingControls
               isRecording={isRecording}
               elapsedSeconds={elapsedSeconds}
@@ -162,32 +139,57 @@ export default function Home() {
               onStop={handleStop}
               disabled={isSaving || !isSupported}
             />
-
-            <div className="w-full">
-              <LiveTranscriptionPanel text={displayText} isRecording={isRecording} isTranscribing={isSaving} />
-            </div>
           </div>
-        )}
 
-        {activeTab === 'history' && (
-          <div className="flex flex-col gap-4 px-4 py-6 max-w-lg mx-auto w-full lg:max-w-4xl lg:flex-row">
-            <div className="flex-1 flex flex-col gap-3">
-              <h2 className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Recordings</h2>
-              <HistoryList
-                records={history}
-                selectedId={selectedRecord?.id ?? null}
-                onSelect={setSelectedRecord}
-                onDelete={handleDelete}
-              />
+          {/* Live transcript */}
+          <LiveTranscriptionPanel text={displayText} isRecording={isRecording} isTranscribing={isSaving} />
+
+          {/* Latest recording detail (auto shown after stop) */}
+          {selectedRecord && !isRecording && (
+            <div className="rounded-2xl p-4" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+              <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>
+                Latest Recording
+              </p>
+              <TranscriptionDetail record={selectedRecord} />
             </div>
-            {selectedRecord && (
-              <div className="flex-1 flex flex-col gap-3">
-                <h2 className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Detail</h2>
-                <TranscriptionDetail record={selectedRecord} />
+          )}
+
+          {/* History section */}
+          <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+            <button
+              onClick={() => setHistoryOpen((o) => !o)}
+              className="w-full flex items-center justify-between px-4 py-3 transition-colors"
+              style={{ background: 'var(--surface)' }}
+            >
+              <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                History
+                {history.length > 0 && (
+                  <span className="ml-2 px-1.5 py-0.5 rounded-full" style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}>
+                    {history.length}
+                  </span>
+                )}
+              </span>
+              <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{historyOpen ? '▲' : '▼'}</span>
+            </button>
+
+            {historyOpen && (
+              <div className="px-4 pb-4 pt-2" style={{ background: 'var(--surface)' }}>
+                <HistoryList
+                  records={history}
+                  selectedId={selectedRecord?.id ?? null}
+                  onSelect={setSelectedRecord}
+                  onDelete={handleDelete}
+                />
+                {selectedRecord && history.some(r => r.id === selectedRecord.id) && (
+                  <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border)' }}>
+                    <TranscriptionDetail record={selectedRecord} />
+                  </div>
+                )}
               </div>
             )}
           </div>
-        )}
+
+        </div>
       </main>
     </div>
   );
