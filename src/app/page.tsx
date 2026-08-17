@@ -2,9 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { useAudioRecorder } from '@/hooks/useAudioRecorder';
+import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { useAppStore } from '@/store/appStore';
-import { streamTranscription } from '@/lib/transcriberClient';
 import { saveRecord, getAllRecords, deleteRecord } from '@/lib/historyStore';
 import { LanguageSelector } from '@/components/LanguageSelector';
 import { RecordingControls } from '@/components/RecordingControls';
@@ -23,12 +22,11 @@ export default function Home() {
 
   const [selectedRecord, setSelectedRecord] = useState<TranscriptionRecord | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [interimText, setInterimText] = useState('');
 
   const sessionIdRef = useRef<string>(uuidv4());
   const sessionStartRef = useRef<number>(0);
-  const languageRef = useRef(selectedLanguage);
-  const isTranscribingChunkRef = useRef(false); // prevent overlapping chunk requests
-  useEffect(() => { languageRef.current = selectedLanguage; }, [selectedLanguage]);
+  const finalTextRef = useRef('');
 
   useEffect(() => {
     getAllRecords()
@@ -36,89 +34,61 @@ export default function Home() {
       .catch(() => setError('Failed to load transcription history.'));
   }, [setHistory, setError]);
 
-  // Called every 5s with ALL audio so far — replaces live text (not appends)
-  const handleChunk = useCallback(async (blob: Blob) => {
-    if (isTranscribingChunkRef.current) return;
-    isTranscribingChunkRef.current = true;
-    const lang = languageRef.current;
-    const sid = sessionIdRef.current;
-    try {
-      let result = '';
-      for await (const text of streamTranscription(blob, lang, sid)) {
-        result += text;
-      }
-      if (result.trim()) {
-        // Replace live text with latest full transcription
-        useAppStore.getState().clearLiveText();
-        appendLiveText(result);
-      }
-    } catch {
-      // silently ignore live chunk errors
-    } finally {
-      isTranscribingChunkRef.current = false;
-    }
-  }, [appendLiveText]);
+  const handleInterim = useCallback((text: string) => {
+    setInterimText(text);
+  }, []);
 
-  // Called once with full audio when recording stops — saves to history
-  const handleComplete = useCallback(async (blob: Blob) => {
-    const duration = Math.round((Date.now() - sessionStartRef.current) / 1000);
-    const id = sessionIdRef.current;
-    const lang = languageRef.current;
+  const handleFinal = useCallback((text: string) => {
+    finalTextRef.current = text;
+    clearLiveText();
+    appendLiveText(text);
+    setInterimText('');
+  }, [clearLiveText, appendLiveText]);
 
+  const { isRecording, isSupported, elapsedSeconds, start, stop } = useSpeechRecognition({
+    language: selectedLanguage,
+    onInterim: handleInterim,
+    onFinal: handleFinal,
+    onError: setError,
+  });
+
+  const handleStart = useCallback(() => {
+    sessionIdRef.current = uuidv4();
+    sessionStartRef.current = Date.now();
+    finalTextRef.current = '';
+    clearLiveText();
+    setInterimText('');
+    start();
+  }, [clearLiveText, start]);
+
+  const handleStop = useCallback(async () => {
+    stop();
     setIsSaving(true);
 
-    // Get whatever text we have (from live chunks)
-    let finalText = useAppStore.getState().liveText;
+    const duration = Math.round((Date.now() - sessionStartRef.current) / 1000);
+    const finalText = finalTextRef.current || useAppStore.getState().liveText;
 
-    // Only do a final transcription pass if zero live text came through
-    if (!finalText.trim()) {
+    if (finalText.trim()) {
+      const record: TranscriptionRecord = {
+        id: sessionIdRef.current,
+        sessionId: sessionIdRef.current,
+        language: selectedLanguage,
+        text: finalText.trim(),
+        durationSeconds: duration,
+        createdAt: Date.now(),
+      };
+
       try {
-        for await (const text of streamTranscription(blob, lang, id)) {
-          appendLiveText(text);
-        }
-        finalText = useAppStore.getState().liveText;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Transcription error.';
-        setError(msg);
+        await saveRecord(record);
+        const updated = await getAllRecords();
+        setHistory(updated);
+      } catch {
+        setError('Failed to save transcription. Your browser storage may be full.');
       }
-    }
-
-    const record: TranscriptionRecord = {
-      id,
-      sessionId: id,
-      language: lang,
-      text: finalText,
-      durationSeconds: duration,
-      createdAt: Date.now(),
-    };
-
-    sessionIdRef.current = uuidv4(); // fresh id for next session
-
-    try {
-      await saveRecord(record);
-      const updated = await getAllRecords();
-      setHistory(updated);
-    } catch {
-      setError('Failed to save transcription. Your browser storage may be full.');
     }
 
     setIsSaving(false);
-  }, [appendLiveText, setError, setHistory]);
-
-  const { isRecording, elapsedSeconds, error: recorderError, start, stop } = useAudioRecorder({
-    onChunk: handleChunk,
-    onComplete: handleComplete,
-  });
-
-  useEffect(() => {
-    if (recorderError) setError(recorderError);
-  }, [recorderError, setError]);
-
-  const handleStart = useCallback(async () => {
-    sessionStartRef.current = Date.now();
-    clearLiveText();
-    await start();
-  }, [clearLiveText, start]);
+  }, [stop, selectedLanguage, setHistory, setError]);
 
   const handleDelete = useCallback(async (id: string) => {
     try {
@@ -131,6 +101,11 @@ export default function Home() {
     }
   }, [setHistory, setError, selectedRecord]);
 
+  // Combined display: final confirmed + current interim
+  const displayText = liveText + (interimText && interimText !== liveText
+    ? (liveText ? ' ' : '') + interimText
+    : '');
+
   return (
     <main className="min-h-screen bg-gray-50 dark:bg-gray-950 px-4 py-8">
       <div className="mx-auto max-w-4xl flex flex-col gap-6">
@@ -140,9 +115,15 @@ export default function Home() {
             Multilingual Transcription
           </h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Record audio and get live transcription in English, Spanish, French, or Urdu.
+            Live transcription in English, Spanish, French, or Urdu — no API limits.
           </p>
         </div>
+
+        {!isSupported && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+            Your browser does not support speech recognition. Please use Chrome or Edge.
+          </div>
+        )}
 
         <ErrorBanner message={error} onDismiss={() => setError(null)} />
 
@@ -156,19 +137,17 @@ export default function Home() {
             isRecording={isRecording}
             elapsedSeconds={elapsedSeconds}
             onStart={handleStart}
-            onStop={stop}
-            disabled={isSaving}
+            onStop={handleStop}
+            disabled={isSaving || !isSupported}
           />
           {isSaving && (
-            <span className="text-sm text-blue-600 dark:text-blue-400 animate-pulse">
-              Saving…
-            </span>
+            <span className="text-sm text-blue-600 dark:text-blue-400 animate-pulse">Saving…</span>
           )}
         </div>
 
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
           <LiveTranscriptionPanel
-            text={liveText}
+            text={displayText}
             isRecording={isRecording}
             isTranscribing={isSaving}
           />
