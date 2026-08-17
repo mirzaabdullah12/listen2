@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { Language } from '@/types';
 
-// BCP-47 language codes for Web Speech API
 const LANG_CODES: Record<Language, string> = {
   en: 'en-US',
   es: 'es-ES',
@@ -11,7 +10,6 @@ const LANG_CODES: Record<Language, string> = {
   ur: 'ur-PK',
 };
 
-// Type shim for Web Speech API (not in all TS lib versions)
 type SpeechRecognitionType = {
   continuous: boolean;
   interimResults: boolean;
@@ -19,10 +17,8 @@ type SpeechRecognitionType = {
   maxAlternatives: number;
   start: () => void;
   stop: () => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  onresult: ((event: any) => void) | null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  onerror: ((event: any) => void) | null;
+  onresult: ((event: any) => void) | null; // eslint-disable-line @typescript-eslint/no-explicit-any
+  onerror: ((event: any) => void) | null;  // eslint-disable-line @typescript-eslint/no-explicit-any
   onend: (() => void) | null;
 };
 
@@ -58,6 +54,9 @@ export function useSpeechRecognition({
 }: UseSpeechRecognitionOptions): UseSpeechRecognitionReturn {
   const [isRecording, setIsRecording] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  // Start false on server, set true on client after mount to avoid hydration mismatch
+  const [isSupported, setIsSupported] = useState(false);
+
   const recognitionRef = useRef<SpeechRecognitionType | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const finalTextRef = useRef('');
@@ -70,8 +69,10 @@ export function useSpeechRecognition({
   useEffect(() => { onFinalRef.current = onFinal; }, [onFinal]);
   useEffect(() => { onErrorRef.current = onError; }, [onError]);
 
-  const isSupported = typeof window !== 'undefined' &&
-    !!(window.SpeechRecognition ?? window.webkitSpeechRecognition);
+  // Detect support on client only
+  useEffect(() => {
+    setIsSupported(!!(window.SpeechRecognition ?? window.webkitSpeechRecognition));
+  }, []);
 
   const createRecognition = useCallback((lang: Language): SpeechRecognitionType | null => {
     const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
@@ -83,7 +84,7 @@ export function useSpeechRecognition({
     recognition.lang = LANG_CODES[lang];
     recognition.maxAlternatives = 1;
 
-    recognition.onresult = (event: any) => {
+    recognition.onresult = (event: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       let interim = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
@@ -97,7 +98,7 @@ export function useSpeechRecognition({
       onInterimRef.current(finalTextRef.current + interim);
     };
 
-    recognition.onerror = (event: any) => {
+    recognition.onerror = (event: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       if (event.error === 'no-speech') return;
       if (event.error === 'aborted') return;
       onErrorRef.current(`Speech recognition error: ${event.error}`);
@@ -133,7 +134,7 @@ export function useSpeechRecognition({
       setIsRecording(true);
       timerRef.current = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
     } catch {
-      onErrorRef.current('Could not start speech recognition. Please allow microphone access.');
+      onErrorRef.current('Could not start. Please allow microphone access.');
     }
   }, [isSupported, language, createRecognition]);
 
