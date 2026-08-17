@@ -23,6 +23,7 @@ export default function Home() {
   const [selectedRecord, setSelectedRecord] = useState<TranscriptionRecord | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [interimText, setInterimText] = useState('');
+  const [activeTab, setActiveTab] = useState<'record' | 'history'>('record');
 
   const sessionIdRef = useRef<string>(uuidv4());
   const sessionStartRef = useRef<number>(0);
@@ -31,7 +32,7 @@ export default function Home() {
   useEffect(() => {
     getAllRecords()
       .then(setHistory)
-      .catch(() => setError('Failed to load transcription history.'));
+      .catch(() => setError('Failed to load history.'));
   }, [setHistory, setError]);
 
   const handleInterim = useCallback((text: string) => {
@@ -77,16 +78,14 @@ export default function Home() {
         durationSeconds: duration,
         createdAt: Date.now(),
       };
-
       try {
         await saveRecord(record);
         const updated = await getAllRecords();
         setHistory(updated);
       } catch {
-        setError('Failed to save transcription. Your browser storage may be full.');
+        setError('Failed to save. Storage may be full.');
       }
     }
-
     setIsSaving(false);
   }, [stop, selectedLanguage, setHistory, setError]);
 
@@ -97,79 +96,99 @@ export default function Home() {
       setHistory(updated);
       if (selectedRecord?.id === id) setSelectedRecord(null);
     } catch {
-      setError('Failed to delete transcription. Please try again.');
+      setError('Failed to delete.');
     }
   }, [setHistory, setError, selectedRecord]);
 
-  // Combined display: final confirmed + current interim
   const displayText = liveText + (interimText && interimText !== liveText
-    ? (liveText ? ' ' : '') + interimText
-    : '');
+    ? (liveText ? ' ' : '') + interimText : '');
 
   return (
-    <main className="min-h-screen bg-gray-50 dark:bg-gray-950 px-4 py-8">
-      <div className="mx-auto max-w-4xl flex flex-col gap-6">
+    <div className="min-h-screen flex flex-col" style={{ background: 'var(--background)' }}>
 
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-50">
-            Multilingual Transcription
-          </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            Live transcription in English, Spanish, French, or Urdu — no API limits.
-          </p>
+      {/* Header */}
+      <header className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: 'var(--border)' }}>
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: 'var(--accent)' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+              <path d="M12 1a4 4 0 0 0-4 4v7a4 4 0 0 0 8 0V5a4 4 0 0 0-4-4z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" stroke="white" strokeWidth="2" fill="none" strokeLinecap="round"/>
+            </svg>
+          </div>
+          <span className="font-semibold text-base tracking-tight" style={{ color: 'var(--text)' }}>ListenAI</span>
         </div>
+        <LanguageSelector value={selectedLanguage} onChange={setLanguage} disabled={isRecording || isSaving} />
+      </header>
 
-        {!isSupported && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
-            Your browser does not support speech recognition. Please use Chrome or Edge.
+      {/* Tab bar */}
+      <div className="flex border-b" style={{ borderColor: 'var(--border)' }}>
+        {(['record', 'history'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className="flex-1 py-3 text-sm font-medium capitalize transition-colors"
+            style={{
+              color: activeTab === tab ? 'var(--accent)' : 'var(--text-muted)',
+              borderBottom: activeTab === tab ? '2px solid var(--accent)' : '2px solid transparent',
+            }}
+          >
+            {tab}
+            {tab === 'history' && history.length > 0 && (
+              <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-xs" style={{ background: 'var(--surface-2)', color: 'var(--text-muted)' }}>
+                {history.length}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <main className="flex-1 overflow-y-auto">
+        {activeTab === 'record' && (
+          <div className="flex flex-col items-center gap-6 px-4 py-8 max-w-lg mx-auto w-full">
+            <ErrorBanner message={error} onDismiss={() => setError(null)} />
+
+            {!isSupported && (
+              <div className="w-full rounded-2xl px-4 py-3 text-sm text-center"
+                style={{ background: 'rgba(255,193,7,0.1)', border: '1px solid rgba(255,193,7,0.3)', color: '#ffc107' }}>
+                Use Chrome or Edge for speech recognition
+              </div>
+            )}
+
+            <RecordingControls
+              isRecording={isRecording}
+              elapsedSeconds={elapsedSeconds}
+              onStart={handleStart}
+              onStop={handleStop}
+              disabled={isSaving || !isSupported}
+            />
+
+            <div className="w-full">
+              <LiveTranscriptionPanel text={displayText} isRecording={isRecording} isTranscribing={isSaving} />
+            </div>
           </div>
         )}
 
-        <ErrorBanner message={error} onDismiss={() => setError(null)} />
-
-        <div className="flex flex-wrap items-end gap-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-          <LanguageSelector
-            value={selectedLanguage}
-            onChange={setLanguage}
-            disabled={isRecording || isSaving}
-          />
-          <RecordingControls
-            isRecording={isRecording}
-            elapsedSeconds={elapsedSeconds}
-            onStart={handleStart}
-            onStop={handleStop}
-            disabled={isSaving || !isSupported}
-          />
-          {isSaving && (
-            <span className="text-sm text-blue-600 dark:text-blue-400 animate-pulse">Saving…</span>
-          )}
-        </div>
-
-        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-          <LiveTranscriptionPanel
-            text={displayText}
-            isRecording={isRecording}
-            isTranscribing={isSaving}
-          />
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-            <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">History</h2>
-            <HistoryList
-              records={history}
-              selectedId={selectedRecord?.id ?? null}
-              onSelect={setSelectedRecord}
-              onDelete={handleDelete}
-            />
+        {activeTab === 'history' && (
+          <div className="flex flex-col gap-4 px-4 py-6 max-w-lg mx-auto w-full lg:max-w-4xl lg:flex-row">
+            <div className="flex-1 flex flex-col gap-3">
+              <h2 className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Recordings</h2>
+              <HistoryList
+                records={history}
+                selectedId={selectedRecord?.id ?? null}
+                onSelect={setSelectedRecord}
+                onDelete={handleDelete}
+              />
+            </div>
+            {selectedRecord && (
+              <div className="flex-1 flex flex-col gap-3">
+                <h2 className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Detail</h2>
+                <TranscriptionDetail record={selectedRecord} />
+              </div>
+            )}
           </div>
-          <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-            <h2 className="mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300">Detail</h2>
-            <TranscriptionDetail record={selectedRecord} />
-          </div>
-        </div>
-
-      </div>
-    </main>
+        )}
+      </main>
+    </div>
   );
 }

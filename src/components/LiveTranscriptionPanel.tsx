@@ -16,27 +16,37 @@ export function LiveTranscriptionPanel({ text, isRecording, isTranscribing }: Li
   }, [text]);
 
   return (
-    <div className="flex flex-col gap-2">
-      <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">
-        Live Transcription
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+          Transcript
+        </span>
         {isRecording && (
-          <span className="ml-2 text-xs text-blue-500 animate-pulse">● Recording…</span>
+          <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--red)' }}>
+            <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+            Live
+          </span>
         )}
         {isTranscribing && (
-          <span className="ml-2 text-xs text-green-500 animate-pulse">● Transcribing…</span>
+          <span className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--accent)' }}>
+            <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+            Saving
+          </span>
         )}
-      </h2>
+      </div>
+
       <div
         role="log"
         aria-live="polite"
-        aria-label="Live transcription output"
-        className="min-h-[120px] max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-4 text-base leading-relaxed text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+        aria-label="Live transcription"
+        className="min-h-[140px] max-h-72 overflow-y-auto rounded-2xl p-4 text-base leading-relaxed"
+        style={{
+          background: 'var(--surface-2)',
+          border: '1px solid var(--border)',
+          color: text ? 'var(--text)' : 'var(--text-muted)',
+        }}
       >
-        {text || (
-          <span className="text-gray-400 dark:text-gray-600">
-            Transcription will appear here as you speak…
-          </span>
-        )}
+        {text || 'Your transcription will appear here…'}
         <div ref={bottomRef} />
       </div>
     </div>

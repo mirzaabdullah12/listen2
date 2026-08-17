@@ -12,23 +12,23 @@ interface LanguageSelectorProps {
 
 export function LanguageSelector({ value, onChange, disabled }: LanguageSelectorProps) {
   return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor="language-select" className="text-sm font-medium text-gray-700 dark:text-gray-300">
-        Language
-      </label>
-      <select
-        id="language-select"
-        value={value}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.value as Language)}
-        className="min-h-[44px] rounded-lg border border-gray-300 bg-white px-3 py-2 text-base text-gray-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-gray-100 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:disabled:bg-gray-700"
-      >
-        {SUPPORTED_LANGUAGES.map((lang) => (
-          <option key={lang} value={lang}>
-            {LANGUAGE_LABELS[lang]}
-          </option>
-        ))}
-      </select>
+    <div className="flex items-center gap-2 flex-wrap justify-center">
+      {SUPPORTED_LANGUAGES.map((lang) => (
+        <button
+          key={lang}
+          onClick={() => onChange(lang)}
+          disabled={disabled}
+          className="px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{
+            background: value === lang ? 'var(--accent)' : 'var(--surface-2)',
+            color: value === lang ? '#fff' : 'var(--text-muted)',
+            border: `1px solid ${value === lang ? 'var(--accent)' : 'var(--border)'}`,
+            boxShadow: value === lang ? '0 0 12px var(--accent-glow)' : 'none',
+          }}
+        >
+          {LANGUAGE_LABELS[lang]}
+        </button>
+      ))}
     </div>
   );
 }

@@ -4,41 +4,38 @@ import type { TranscriptionRecord } from '@/types';
 import { LANGUAGE_LABELS } from '@/types';
 import { downloadTranscription } from '@/lib/downloadManager';
 
-interface TranscriptionDetailProps {
-  record: TranscriptionRecord | null;
-}
-
-export function TranscriptionDetail({ record }: TranscriptionDetailProps) {
+export function TranscriptionDetail({ record }: { record: TranscriptionRecord | null }) {
   if (!record) {
     return (
-      <p className="text-sm text-gray-400 dark:text-gray-600 py-4 text-center">
-        Select a transcription to view it.
+      <p className="text-sm text-center py-8" style={{ color: 'var(--text-muted)' }}>
+        Select a recording to view
       </p>
     );
   }
 
-  const date = new Date(record.createdAt).toLocaleString();
-  const duration = `${record.durationSeconds}s`;
-
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-col gap-0.5">
-          <span className="text-xs text-gray-500 dark:text-gray-400">{date} · {LANGUAGE_LABELS[record.language]} · {duration}</span>
-        </div>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          {new Date(record.createdAt).toLocaleString()} · {LANGUAGE_LABELS[record.language]} · {record.durationSeconds}s
+        </span>
         <button
           onClick={() => downloadTranscription(record)}
-          className="min-h-[44px] rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white shadow transition hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
-          aria-label="Download transcription as text file"
+          className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+          style={{
+            background: 'rgba(77,255,176,0.1)',
+            border: '1px solid rgba(77,255,176,0.3)',
+            color: 'var(--green)',
+          }}
         >
-          Download .txt
+          ↓ Download
         </button>
       </div>
       <div
-        className="max-h-64 overflow-y-auto rounded-lg border border-gray-200 bg-gray-50 p-4 text-base leading-relaxed whitespace-pre-wrap text-gray-800 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
-        aria-label="Full transcription text"
+        className="max-h-64 overflow-y-auto rounded-xl p-4 text-sm leading-relaxed whitespace-pre-wrap"
+        style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--text)' }}
       >
-        {record.text || <span className="text-gray-400">(no text)</span>}
+        {record.text || <span style={{ color: 'var(--text-muted)' }}>(no speech)</span>}
       </div>
     </div>
   );
