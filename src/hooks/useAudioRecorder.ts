@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 
 interface UseAudioRecorderOptions {
-  onChunk: (blob: Blob) => void;   // called every ~5s during recording
+  onChunk: (blob: Blob) => void;    // called every ~5s during recording
   onComplete: (blob: Blob) => void; // called with full audio on stop
 }
 
@@ -15,7 +15,7 @@ interface UseAudioRecorderReturn {
   stop: () => void;
 }
 
-const CHUNK_INTERVAL_MS = 5000; // send a chunk every 5 seconds
+const CHUNK_INTERVAL_MS = 5000;
 
 export function useAudioRecorder({ onChunk, onComplete }: UseAudioRecorderOptions): UseAudioRecorderReturn {
   const [isRecording, setIsRecording] = useState(false);
@@ -25,17 +25,16 @@ export function useAudioRecorder({ onChunk, onComplete }: UseAudioRecorderOption
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const chunkTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const allChunksRef = useRef<Blob[]>([]);
   const windowChunksRef = useRef<Blob[]>([]);
-  const chunkTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mimeTypeRef = useRef<string>('audio/webm');
 
-  const flushWindow = useCallback(() => {
-    if (windowChunksRef.current.length === 0) return;
-    const blob = new Blob(windowChunksRef.current, { type: mimeTypeRef.current });
-    windowChunksRef.current = [];
-    if (blob.size > 0) onChunk(blob);
-  }, [onChunk]);
+  // Use refs for callbacks to avoid stale closures
+  const onChunkRef = useRef(onChunk);
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => { onChunkRef.current = onChunk; }, [onChunk]);
+  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
 
   const start = useCallback(async () => {
     setError(null);
@@ -45,35 +44,42 @@ export function useAudioRecorder({ onChunk, onComplete }: UseAudioRecorderOption
 
     let stream: MediaStream;
     try {
+      // Keep constraints simple — sampleRate is not universally supported
       stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
-          channelCount: 1,        // mono is better for speech
-          sampleRate: 16000,      // 16kHz is ideal for speech recognition
         },
       });
     } catch (err) {
-      const msg =
-        err instanceof Error && err.name === 'NotAllowedError'
-          ? 'Microphone access was denied. Please allow microphone permission in your browser settings.'
-          : 'Could not access microphone. Please check your device settings.';
-      setError(msg);
-      return;
+      // Fallback: try without any constraints
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch {
+        const msg =
+          err instanceof Error && err.name === 'NotAllowedError'
+            ? 'Microphone access was denied. Please allow microphone permission in your browser settings.'
+            : 'Could not access microphone. Please check your device settings.';
+        setError(msg);
+        return;
+      }
     }
 
     streamRef.current = stream;
 
-    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-      ? 'audio/webm;codecs=opus'
-      : MediaRecorder.isTypeSupported('audio/webm')
-      ? 'audio/webm'
-      : undefined;
-
+    // Pick best supported mime type
+    const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4']
+      .find((t) => MediaRecorder.isTypeSupported(t));
     mimeTypeRef.current = mimeType ?? 'audio/webm';
 
-    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    let recorder: MediaRecorder;
+    try {
+      recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+    } catch {
+      recorder = new MediaRecorder(stream);
+      mimeTypeRef.current = 'audio/webm';
+    }
     mediaRecorderRef.current = recorder;
 
     recorder.ondataavailable = (e) => {
@@ -83,37 +89,36 @@ export function useAudioRecorder({ onChunk, onComplete }: UseAudioRecorderOption
       }
     };
 
+    recorder.onerror = () => {
+      setError('Recording error occurred. Please try again.');
+      setIsRecording(false);
+    };
+
     recorder.onstop = () => {
-      // Clear the live chunk timer
-      if (chunkTimerRef.current) {
-        clearInterval(chunkTimerRef.current);
-        chunkTimerRef.current = null;
-      }
+      if (chunkTimerRef.current) { clearInterval(chunkTimerRef.current); chunkTimerRef.current = null; }
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
-      if (timerRef.current) clearInterval(timerRef.current);
       setIsRecording(false);
 
-      // Send full audio for final save
       const fullBlob = new Blob(allChunksRef.current, { type: mimeTypeRef.current });
       allChunksRef.current = [];
       windowChunksRef.current = [];
-      if (fullBlob.size > 0) onComplete(fullBlob);
+      if (fullBlob.size > 0) onCompleteRef.current(fullBlob);
     };
 
-    recorder.start(1000); // collect data every 1s
+    recorder.start(1000);
     setIsRecording(true);
 
-    // Timer for elapsed display
-    timerRef.current = setInterval(() => {
-      setElapsedSeconds((s) => s + 1);
-    }, 1000);
+    timerRef.current = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
 
-    // Send live chunk every 5 seconds
     chunkTimerRef.current = setInterval(() => {
-      flushWindow();
+      const chunks = windowChunksRef.current.splice(0);
+      if (chunks.length === 0) return;
+      const blob = new Blob(chunks, { type: mimeTypeRef.current });
+      if (blob.size > 0) onChunkRef.current(blob);
     }, CHUNK_INTERVAL_MS);
-  }, [onChunk, onComplete, flushWindow]);
+  }, []); // no deps — uses refs for callbacks
 
   const stop = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
